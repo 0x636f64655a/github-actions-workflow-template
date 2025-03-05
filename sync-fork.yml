@@ -7,7 +7,7 @@ on:
   release:
     types:
       - released
-    repository: <USER>/<REPO_NAME>
+    repository: <OWNER>/<REPO>
   workflow_dispatch:
 
 jobs:
@@ -19,7 +19,7 @@ jobs:
         uses: actions/checkout@v4
         
       - name: Add remote for upstream repository
-        run: git remote add upstream https://github.com/<USER>/<REPO_NAME>.git
+        run: git remote add upstream https://github.com/<OWNER>/<REPO>.git
 
       - name: Fetch the latest changes from the upstream repository
         run: git fetch upstream
