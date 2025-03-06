@@ -1,0 +1,18 @@
+name: debug
+permissions:
+  contents: read
+  packages: write
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+jobs:
+  debug:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Debug gh command
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          docker manifest inspect ubuntu:latest | jq '.manifests[].platform'
