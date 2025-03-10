@@ -1,47 +1,51 @@
-name: Sync Fork to Upstream
-
-permissions:
-  contents: write
-
+name: Sync all branches
 on:
-  schedule:
-    - cron: "0 0 * * *" # every day
   workflow_dispatch:
-    inputs:
-      sync_test_mode: # Adds a boolean option that appears during manual workflow run for easy test mode config
-        description: 'Fork Sync Test Mode'
-        type: boolean
-        default: false
 
 jobs:
-  sync_latest_from_upstream:
-    name: Sync latest commits from upstream repo
+
+  generate-matrix:
+    name: Generate matrix of branches
     runs-on: ubuntu-latest
-    if: ${{ github.event.repository.fork }}
-
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
-      # Step 1: run a standard checkout action
-      - name: Checkout target repo
-        uses: actions/checkout@v4
+      - name: Set matrix of branches
+        id: set-matrix
+        run: |
+          upstream_repo="https://${GITHUB_ACTOR}:${INPUT_GITHUB_TOKEN}@github.com/${INPUT_UPSTREAM_REPOSITORY}.git"
 
-      # Step 2: run the sync action
-      - name: Sync upstream changes
-        id: sync
-        uses: aormsby/Fork-Sync-With-Upstream-action@v3.4
+          # these jq scripts will produce the same matrix jobs by default
+          # choose the one that works for any additional values that you may need to build your matrix with
+          jq_script='{ "branch": [inputs | split("\n") | .[] | gsub(".*refs/heads/"; "")] }'   # {"branch":["$branch_name_1","$branch_name_2"]}
+          # jq_script='[inputs | split("\n") | .[] | gsub(".*refs/heads/"; "") | { "branch": . }]' # [{"branch":"$branch_name_1"},{"branch":"$branch_name_2"}]
+
+          JSON="$(git ls-remote --heads "$upstream_repo" | jq -McnR "$jq_script")"
+
+          # debug matrix pretty json formatted output
+          jq --monochrome-output . -- <<< "$JSON"
+
+          # set output variable named 'matrix' for use in subsequent jobs that 'needs' this job.
+          # https://docs.github.com/en/actions/using-jobs/defining-outputs-for-jobs
+          echo "matrix=$JSON" >> $GITHUB_OUTPUT
+
+        env:
+          INPUT_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INPUT_UPSTREAM_REPOSITORY: Toperlock/sing-box-subscribe
+
+  sync_fork:
+    runs-on: ubuntu-latest
+    needs: generate-matrix
+    strategy:
+      matrix: ${{fromJson(needs.generate-matrix.outputs.matrix)}}
+      fail-fast: false
+    steps:
+      - uses: TobKed/github-forks-sync-action@master
         with:
-          upstream_sync_repo: owner/repo # replace "owner" and "repo" with the actual ones
-          upstream_sync_branch: ${{ github.event.repository.default_branch }}
-          target_sync_branch: ${{ github.event.repository.default_branch }}
-          target_repo_token: ${{ secrets.GITHUB_TOKEN }} # automatically generated, no need to set
-
-          # Set test_mode true to run tests instead of the true action!!
-          test_mode: ${{ inputs.sync_test_mode }}
-
-      # Step 3: Display a message based on the sync output var 'has_new_commits'
-      - name: New commits found
-        if: steps.sync.outputs.has_new_commits == 'true'
-        run: echo "New commits were found to sync."
-      
-      - name: No new commits
-        if: steps.sync.outputs.has_new_commits == 'false'
-        run: echo "There were no new commits."
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          upstream_repository: Toperlock/sing-box-subscribe
+          target_repository: 0x636f64655a/airflow
+          upstream_branch: ${{ matrix.branch }}
+          target_branch: ${{ matrix.branch }}
+          force: true
+          tags: true
