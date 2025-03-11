@@ -103,17 +103,47 @@ jobs:
             echo "Skipping restore as .github/workflows was not found." 
           fi
 
-      - name: Store latest tag in .github/workflows/artifacts
+      - name: Check if tags exist
+        id: check_tags_exsitence
         run: |
-          # Check if artifacts directory exists, if not, create it
-          if [ ! -d ".github/workflows/artifacts" ]; then
-            echo "Creating artifacts directory..."
-            mkdir -p .github/workflows/artifacts
+          # Check if there are any tags
+          TAG_COUNT=$(git tag -l | wc -l)
+          
+          if [ "$TAG_COUNT" -gt 0 ]; then
+            echo "Tags are detected."
+            LATEST_TAG=$(git describe --tags --abbrev=0)
+            echo "LATEST_TAG=$LATEST_TAG" >> "$GITHUB_ENV"
           else
-            echo "Artifacts directory already exists."
+            echo "No tags found in the repository."
+            echo "LATEST_TAG=''" >> "$GITHUB_ENV"
           fi
 
-          # Retrieve the latest tag and save it
-          latest_tag=$(git describe --tags --abbrev=0)
-          echo "Latest tag: $latest_tag"
-          echo "$latest_tag" > .github/workflows/artifacts/previous_tag.txt
+      - name: Check new tag and output status
+        id: check_new_tag
+        run: |
+          if [ ! -d ".github/workflows/artifacts" ]; then
+            echo "Creating .github/workflows/artifacts directory..."
+            mkdir -p .github/workflows/artifacts
+          fi
+
+          prev_tag_file=".github/workflows/artifacts/previous_tag.txt"
+
+          if [ -f "$prev_tag_file" ]; then
+            previous_tag=$(cat "$prev_tag_file")
+            echo "Previous tag: $previous_tag"
+
+          if git merge-base --is-ancestor "$previous_tag" "$LATEST_TAG"; then
+            echo "New tag detected. Updating previous_tag.txt..."
+            echo "$LATEST_TAG" > "$prev_tag_file"
+            echo "is_new_tag=true" >> "$GITHUB_ENV"
+          else
+            echo "Tag is not newer. No update needed."
+            echo "is_new_tag=false" >> "$GITHUB_ENV"
+          fi
+
+      - name: Upload tag status artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: is_new_tag
+          path: <(echo "${{ steps.check_new_tag.outputs.is_new_tag }}")
+          retention-days: 7
