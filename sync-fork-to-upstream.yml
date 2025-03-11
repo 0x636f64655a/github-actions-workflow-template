@@ -63,7 +63,26 @@ jobs:
       matrix: ${{fromJson(needs.generate-matrix.outputs.matrix)}}
       fail-fast: false
     steps:
-      - uses: TobKed/github-forks-sync-action@master
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ matrix.branch }}
+          fetch-depth: 0  # Ensure full history is available for sync
+
+      - name: Backup .github/workflows (if exists)
+        id: backup_workflows
+        run: |
+          if [ -d ".github/workflows" ]; then
+            echo "Backing up .github/workflows..."
+            mkdir -p workflows_backup
+            cp -r .github/workflows workflows_backup/
+            echo "exists=true" >> "$GITHUB_ENV"
+          else
+            echo "No .github/workflows directory found. Skipping backup."
+          fi
+
+      - name: Sync fork
+        uses: TobKed/github-forks-sync-action@master
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           upstream_repository: ${{ needs.retrieve-upstream-info.outputs.upstream_owner }}/${{ needs.retrieve-upstream-info.outputs.upstream_repo }}
@@ -72,3 +91,29 @@ jobs:
           target_branch: ${{ matrix.branch }}
           force: true
           tags: true
+
+      - name: Restore local .github/workflows
+        run: |
+          if [ "$exists" = "true" ]; then
+            echo "Restoring .github/workflows..."
+            rm -rf .github/workflows
+            mv workflows_backup .github/workflows
+            git restore --staged .github/workflows/ 
+          else
+            echo "Skipping restore as .github/workflows was not found." 
+          fi
+
+      - name: Store latest tag in .github/workflows/artifacts
+        run: |
+          # Check if artifacts directory exists, if not, create it
+          if [ ! -d ".github/workflows/artifacts" ]; then
+            echo "Creating artifacts directory..."
+            mkdir -p .github/workflows/artifacts
+          else
+            echo "Artifacts directory already exists."
+          fi
+
+          # Retrieve the latest tag and save it
+          latest_tag=$(git describe --tags --abbrev=0)
+          echo "Latest tag: $latest_tag"
+          echo "$latest_tag" > .github/workflows/artifacts/previous_tag.txt
